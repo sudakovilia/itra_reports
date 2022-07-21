@@ -124,7 +124,7 @@ class ReportGenerator:
         self.loader = DataLoader(selected_file_path)
         self.cell_formatter = ReportCellFormatter(report_type)
         week_name = (self.loader.week_cols[0] + timedelta(days=2)).strftime('%d-%m-%Y')
-        self.save_path = f'./data/Staffing_ITRA_byPerson-w-{week_name}.xlsx'
+        self.save_path = f'Staffing_ITRA_byPerson-w-{week_name}.xlsx'
         self.set_up_excel_workbook()
         self.set_formats()
         self.print_staff_info()
