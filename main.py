@@ -1,7 +1,12 @@
 import json
+import tkinter as tk
 import pandas as pd
 import xlsxwriter
 from datetime import datetime, timedelta
+from tkinter import messagebox as mb
+from tkinter import filedialog as fd
+from tkinter import ttk
+from threading import Thread
 
 
 class ReportCellFormatter:
@@ -115,9 +120,9 @@ class DataLoader:
 
 class ReportGenerator:
 
-    def __init__(self) -> None:
-        self.loader = DataLoader('./data/1c_data.xlsx')
-        self.cell_formatter = ReportCellFormatter(2)
+    def __init__(self, selected_file_path, report_type) -> None:
+        self.loader = DataLoader(selected_file_path)
+        self.cell_formatter = ReportCellFormatter(report_type)
         week_name = (self.loader.week_cols[0] + timedelta(days=2)).strftime('%d-%m-%Y')
         self.save_path = f'./data/Staffing_ITRA_byPerson-w-{week_name}.xlsx'
         self.set_up_excel_workbook()
@@ -178,8 +183,96 @@ class ReportGenerator:
                 cell_format = self.workbook.add_format(self.cell_formatter.get_cell_format(cell.total))
                 self.worksheet.write(staff_n + 1, week_n + 2, cell.text, cell_format)
 
+class ReportGenerationThread(Thread):
+
+    def __init__(self, selected_file_path, report_type):
+        super().__init__()
+        self.selected_file_path = selected_file_path
+        self.report_type = report_type
+        self.save_path = str()
+
+    def run(self):
+        generator = ReportGenerator(self.selected_file_path, self.report_type)
+        self.save_path = generator.save_path
+
+class View(tk.Tk):
+
+    def __init__(self, master=None) -> None:
+        super().__init__()
+
+        self.title('ITRA reports')
+        self.minsize(400, 200)
+
+        self.main_frame = ttk.Frame(self)
+        self.main_frame.pack(side='top', fill='both', expand=True, padx=10, pady=10)
+        self.main_frame.rowconfigure(0, weight=2)
+        self.main_frame.rowconfigure(1, weight=1)
+        self.main_frame.rowconfigure(2, weight=1)
+        self.main_frame.rowconfigure(3, weight=1)
+        self.main_frame.rowconfigure(4, weight=4)
+        self.main_frame.columnconfigure(0, weight=1)
+        self.main_frame.columnconfigure(1, weight=4)
+
+        select_file_label = ttk.Label(self.main_frame, text='Выгрузка из 1C')
+        select_file_label.grid(row=0, column=0, sticky='w')
+        self.selected_file_path = tk.StringVar()
+        select_file_button = ttk.Button(self.main_frame, text='Выбрать файл', command=self.select_file)
+        select_file_button.grid(row=0, column=1, sticky='we')
+
+        report_type_label = ttk.Label(self.main_frame, text='Тип отчета:')
+        report_type_label.grid(row=1, column=0, sticky='w')
+
+        self.report_type = tk.IntVar()
+        self.report_type.set(1)
+        
+        rb0 = ttk.Radiobutton(self.main_frame, text='Формальный: белый, желтый, зеленый, красный', variable=self.report_type, value=1)
+        rb0.grid(row=2, column=0, columnspan=2, sticky='w')
+
+        rb1 = ttk.Radiobutton(self.main_frame, text='Внутренний мониторинг: вариант 1 + бордовый и темно-серый', variable=self.report_type, value=2)
+        rb1.grid(row=3, column=0, columnspan=2, sticky='w')
+
+        self.generate_report_button = ttk.Button(self.main_frame, text='Сформировать отчет', width=40, command=self.generate_report)
+        self.generate_report_button.grid(row=4, column=0, columnspan=2)
+        self.generate_report_button['state'] = 'disabled'
+
+    def select_file(self):
+        filetypes = (
+            ('Excel files', '*.xlsx'),
+            ('All files', '*.*')
+        )
+
+        file_name = fd.askopenfilename(
+            title='Выберите файл выгрузки из 1C',
+            initialdir='.',
+            filetypes=filetypes)
+
+        if file_name == '':
+            pass
+        else:
+            self.selected_file_path.set(file_name)
+            self.generate_report_button['state'] = 'normal'
+
+    def generate_report(self):
+        self.generate_report_button['state'] = 'disabled'
+        self.main_frame.config(cursor='wait')
+        thread = ReportGenerationThread(self.selected_file_path.get(), self.report_type.get())
+        thread.start()
+        self.monitor(thread)
+
+
+    def monitor(self, thread):
+        if thread.is_alive():
+            self.after(100, lambda: self.monitor(thread))
+        else:
+            self.generate_report_button['state'] = 'normal'
+            self.main_frame.config(cursor='')
+            mb.showinfo(title='Готово', message=f'Отчет сохранен в файл {thread.save_path}')
+            
+        
+    def main(self):
+        self.mainloop()
+
 
 if __name__ == '__main__':
-    ReportGenerator()
-    
-    
+    view = View()
+    view.main()
