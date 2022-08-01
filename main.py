@@ -52,19 +52,23 @@ class ReportCellFormatter:
 
 class ReportCellGenerator:
 
-    def __init__(self, lpn, week, df) -> None:
-        self.df_filtered = df.loc[(df['LPN'] == lpn) & (df['Период'] == week)]
+    def __init__(self, gpn, week, df) -> None:
+        self.df_filtered = df.loc[(df['GPN'] == gpn) & (df['Период'] == week)]
         self.generate_cell_text()
         self.calculate_cell_total()
 
     def generate_cell_text(self):
         job_hours_df = self.df_filtered[['Job', 'Hours']].groupby('Job', as_index=False).sum()
-        if job_hours_df.empty:
+        hours_list = [hours for _, hours in job_hours_df.values.tolist()]
+        
+        if job_hours_df.empty or not(any(hours_list)):
             self.text = '="0"'
         else:
             self.text = '='
             for job_name, hours in job_hours_df.values.tolist():
-                self.text += f'"{job_name} ({hours:.0f})"&char(10)&'
+                if hours != 0:
+                    self.text += f'"{job_name} ({hours:.0f})"&char(10)&'
+                
             self.text = self.text[:-10]
 
     def calculate_cell_total(self):
@@ -85,7 +89,8 @@ class DataLoader:
         self.raw_df = pd.read_excel(self.data_path,
                                     converters={
                                         'Период': lambda x: datetime.strptime(x, "%d.%m.%Y").date(),
-                                        'LPN': str
+                                        'GPN': str,
+                                        'MU': str
                                         }
                                     )
 
@@ -97,6 +102,8 @@ class DataLoader:
         df['Staff'] = df['Staff'].str.replace(', ', ' ')
         report_date_from = datetime.today().date() - timedelta(weeks=1)
         df = df[df['Период'] > report_date_from]
+        df = df[df['Staff.Suspended'] == 'Нет']
+        df = df[df['MU'] == '00217']
         self.df = df
 
     def get_week_cols(self):
@@ -110,7 +117,7 @@ class DataLoader:
         except:
             raise Exception('Ошибка файла grades.json')
         
-        staff_df = self.df[['LPN', 'Staff', 'Position']].drop_duplicates()
+        staff_df = self.df[['GPN', 'Staff', 'Position']].drop_duplicates()
         staff_df['Grade'] = staff_df['Position'].map(grades)
         staff_df['Grade_order'] = staff_df['Position'].map(grades_order)
         staff_df.sort_values(by=['Grade_order', 'Staff'], inplace=True, ignore_index=True)
