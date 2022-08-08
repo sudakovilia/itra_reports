@@ -81,9 +81,9 @@ class DataLoader:
         self.data_path = data_path
         self.load_data()
         self.preprocess_data()
-        self.get_week_cols()
         self.get_staff_list()
-
+        self.remove_old_periods_data()
+        self.get_week_cols()
 
     def load_data(self):
         self.raw_df = pd.read_excel(self.data_path,
@@ -100,8 +100,6 @@ class DataLoader:
         df['Position'] = df['Position'].str.strip()
         df['Position'] = df['Position'].fillna('')
         df['Staff'] = df['Staff'].str.replace(', ', ' ')
-        report_date_from = datetime.today().date() - timedelta(weeks=1)
-        df = df[df['Период'] > report_date_from]
         df = df[df['Staff.Suspended'] == 'Нет']
         df = df[df['MU'] == '00217']
         self.df = df
@@ -124,6 +122,11 @@ class DataLoader:
         staff_df.drop(columns=['Position',	'Grade_order'], inplace=True)
         staff_df.fillna(value='', inplace=True)
         self.staff_list = staff_df.values.tolist()
+
+    def remove_old_periods_data(self):
+        report_date_from = datetime.today().date() - timedelta(weeks=1)
+        self.df = self.df[self.df['Период'] > report_date_from]
+
 
 class ReportGenerator:
 
@@ -206,6 +209,8 @@ class View(tk.Tk):
 
     def __init__(self, master=None) -> None:
         super().__init__()
+
+        # TODO: добавить проверку наличия файлов grades.json и formats.json
 
         self.title('ITRA reports')
         self.minsize(400, 200)
