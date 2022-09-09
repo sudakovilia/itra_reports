@@ -35,9 +35,9 @@ class ReportCellFormatter:
             'bordo': '#b00000', #'font_color': 'white'}),
             'dark_gray': '#565656' #'font_color': 'white'}),
         }
-        
+     
         for color, rng in self.color_ranges.items():
-            if total_hours in range(*rng):
+            if rng[0] <= total_hours < rng[1]:
                 color_match = color
         
         try:
@@ -82,7 +82,7 @@ class DataLoader:
         self.load_data()
         self.preprocess_data()
         self.get_staff_list()
-        self.remove_old_periods_data()
+        # self.remove_old_periods_data()
         self.get_week_cols()
 
     def load_data(self):
