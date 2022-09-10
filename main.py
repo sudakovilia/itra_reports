@@ -9,7 +9,7 @@ from tkinter import ttk
 from threading import Thread
 
 
-class ReportCellFormatter:
+class StaffingReportCellFormatter:
 
     def __init__(self, fmt_type) -> None:
         try:
@@ -50,7 +50,7 @@ class ReportCellFormatter:
 
         return format
 
-class ReportCellGenerator:
+class StaffingReportCellGenerator:
 
     def __init__(self, gpn, week, df) -> None:
         self.df_filtered = df.loc[(df['GPN'] == gpn) & (df['Период'] == week)]
@@ -75,10 +75,10 @@ class ReportCellGenerator:
         staff_hours_df = self.df_filtered[['Staff', 'Hours']].groupby('Staff', as_index=False).sum()
         self.total = 0 if staff_hours_df.empty else staff_hours_df['Hours'].values[0]
 
-class DataLoader:
+class StaffingDataLoader:
 
-    def __init__(self, data_path):
-        self.data_path = data_path
+    def __init__(self, path_to_file):
+        self.data_path = path_to_file
         self.load_data()
         self.preprocess_data()
         self.get_staff_list()
@@ -102,10 +102,12 @@ class DataLoader:
         df['Staff'] = df['Staff'].str.replace(', ', ' ')
         df = df[df['Staff.Suspended'] == 'Нет']
         df = df[df['MU'] == '00217']
+        df = df[['GPN', 'Период', 'Job', 'Hours', 'Staff', 'Position']]
         self.df = df
 
     def get_week_cols(self):
         self.week_cols = self.df['Период'].unique().tolist()
+        self.week_cols.sort()
 
     def get_staff_list(self):
         try:
@@ -123,16 +125,29 @@ class DataLoader:
         staff_df.fillna(value='', inplace=True)
         self.staff_list = staff_df.values.tolist()
 
-    def remove_old_periods_data(self):
-        report_date_from = datetime.today().date() - timedelta(weeks=1)
-        self.df = self.df[self.df['Период'] > report_date_from]
+    # def remove_old_periods_data(self):
+    #     report_date_from = datetime.today().date() - timedelta(weeks=1)
+    #     self.df = self.df[self.df['Период'] > report_date_from]
+
+    def get_total_df(self, date_from=None, date_to=None):
+        date_from += timedelta(days=2)
+        date_to += timedelta(days=2)
+        df = self.df.copy()
+        if date_from is not None:
+            df = df[df['Период'] >= date_from]
+        if date_to is not None:
+            df = df[df['Период'] <= date_to]
+        df = df.groupby('GPN').sum()
+        df = df.rename({'Hours': 'Staffing Total'}, axis=1)
+        return df
 
 
-class ReportGenerator:
+
+class StaffingReportGenerator:
 
     def __init__(self, selected_file_path, report_type) -> None:
-        self.loader = DataLoader(selected_file_path)
-        self.cell_formatter = ReportCellFormatter(report_type)
+        self.loader = StaffingDataLoader(selected_file_path)
+        self.cell_formatter = StaffingReportCellFormatter(report_type)
         week_name = (self.loader.week_cols[0] + timedelta(days=2)).strftime('%d-%m-%Y')
         self.save_path = f'Staffing_ITRA_byPerson-w-{week_name}.xlsx'
         self.set_up_excel_workbook()
@@ -148,8 +163,8 @@ class ReportGenerator:
         worksheet = workbook.add_worksheet('Staffing_report')
         worksheet.freeze_panes(1, 2)
         worksheet.set_zoom(50)
-        worksheet.set_column(0, 0, 25)  # ширина конолки с именанми
-        worksheet.set_column(1, 1, 10)  # ширина конолки с грейдами
+        worksheet.set_column(0, 0, 25)  # ширина колонки с именанми
+        worksheet.set_column(1, 1, 10)  # ширина колонки с грейдами
         worksheet.set_column(2, len(self.loader.week_cols) + 1, 50)  # ширина колонок с инфой
         for n in range(1, len(self.loader.staff_list) + 1):
             worksheet.set_row(n, 150)
@@ -189,11 +204,11 @@ class ReportGenerator:
     def print_report_data(self):
         for staff_n, staff in enumerate(self.loader.staff_list):
             for week_n, week in enumerate(self.loader.week_cols):
-                cell = ReportCellGenerator(staff[0], week, self.loader.df)
+                cell = StaffingReportCellGenerator(staff[0], week, self.loader.df)
                 cell_format = self.workbook.add_format(self.cell_formatter.get_cell_format(cell.total))
                 self.worksheet.write(staff_n + 1, week_n + 2, cell.text, cell_format)
 
-class ReportGenerationThread(Thread):
+class StaffingReportGenerationThread(Thread):
 
     def __init__(self, selected_file_path, report_type):
         super().__init__()
@@ -202,8 +217,86 @@ class ReportGenerationThread(Thread):
         self.save_path = str()
 
     def run(self):
-        generator = ReportGenerator(self.selected_file_path, self.report_type)
+        generator = StaffingReportGenerator(self.selected_file_path, self.report_type)
         self.save_path = generator.save_path
+
+class ChargingDataLoader:
+
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.load_data()
+        self.preprocess_data()
+        self.filter_data()
+
+
+    def load_data(self):
+        self.raw_df = pd.read_excel(self.file_path,
+                                    sheet_name='Details',
+                                    skiprows=5,
+                                    index_col=None,
+                                    converters={'GPN': str})
+
+    def preprocess_data(self):
+        df = self.raw_df.copy()
+        df.columns = df.columns.str.replace('\n','')
+        df['Timesheet Date'] = df['Timesheet Date'].dt.date
+        self.df = df
+
+    def filter_data(self):
+        self.df = self.df[self.df['Eng. Type'] == 'C']
+        self.df = self.df[['GPN', 'Hrs', 'Timesheet Date']]
+
+    def get_total_by_gpn(self, gpn, date_from=None, date_to=None):
+        df = self.df.copy()
+        if date_from is not None:
+            df = df[df['Timesheet Date'] >= date_from]
+        if date_to is not None:
+            df = df[df['Timesheet Date'] <= date_to]
+        df = df.groupby('GPN').sum()
+        
+        return float(df.loc[gpn])
+    
+    def get_total_df(self, date_from=None, date_to=None):
+        df = self.df.copy()
+        if date_from is not None:
+            df = df[df['Timesheet Date'] >= date_from]
+        if date_to is not None:
+            df = df[df['Timesheet Date'] <= date_to]
+        df = df.groupby('GPN').sum()
+        df = df.rename({'Hrs': 'Charging Total'}, axis=1)
+        return df
+
+class StaffingVsChargingReportGenerator:
+    
+    def __init__(self) -> None:
+        date_from=datetime.strptime('2022-08-01', '%Y-%m-%d').date()
+        date_to=datetime.strptime('2022-08-05', '%Y-%m-%d').date()
+
+        staffing = StaffingDataLoader('.\data\staffing.xlsx')
+        charging_cyber = ChargingDataLoader('.\data\Cyber_Staff Charging Details.xlsx')
+        # charging_tech = ChargingDataLoader('.\data\Cyber_Staff Charging Details.xlsx')
+        employee = EmployeeDataLoader('.\data\ITRA Counsellors.xlsx')
+        report = employee.data_df
+        report['_grade_order'] = report['Grade'].map(employee.grades_order)
+        report.sort_values(by=['_grade_order', 'Name'], inplace=True)
+        staffing_total = staffing.get_total_df(date_from, date_to)
+        charging_cyber_total = charging_cyber.get_total_df(date_from, date_to)
+
+        report = pd.merge(report, staffing_total, how='left', left_index=True, right_index=True, sort=False)
+        report = pd.merge(report, charging_cyber_total, how='left', left_index=True, right_index=True, sort=False)
+        report['Charging - Staffing'] = report['Charging Total'] - report['Staffing Total']
+        report.to_excel('res_tst.xlsx')
+
+
+
+class EmployeeDataLoader:
+
+    def __init__(self, path_to_file) -> None:
+        self.data_df = pd.read_excel(path_to_file,converters={'GPN': str}, sheet_name='Data')
+        self.data_df.set_index('GPN', inplace=True)
+        self.grades_df = pd.read_excel(path_to_file, sheet_name='Grades', index_col=None)
+        self.grades = {v[0]: v[1] for v in self.grades_df.values}
+        self.grades_order = {key: n for (n, key) in enumerate(self.grades.keys())}
 
 class View(tk.Tk):
 
@@ -267,7 +360,7 @@ class View(tk.Tk):
     def generate_report(self):
         self.generate_report_button['state'] = 'disabled'
         self.main_frame.config(cursor='wait')
-        thread = ReportGenerationThread(self.selected_file_path.get(), self.report_type.get())
+        thread = StaffingReportGenerationThread(self.selected_file_path.get(), self.report_type.get())
         thread.start()
         self.monitor(thread)
 
@@ -286,5 +379,7 @@ class View(tk.Tk):
 
 
 if __name__ == '__main__':
-    view = View()
-    view.main()
+    # view = View()
+    # view.main()
+
+    generator = StaffingVsChargingReportGenerator()
