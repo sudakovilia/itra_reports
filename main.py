@@ -1,7 +1,9 @@
 import json
 import tkinter as tk
+from unittest import result
 import pandas as pd
 import xlsxwriter
+import numpy as np
 from datetime import datetime, timedelta
 from tkinter import messagebox as mb
 from tkinter import filedialog as fd
@@ -9,44 +11,73 @@ from tkinter import ttk
 from threading import Thread
 
 
-class StaffingReportCellFormatter:
+class CellFormatter:
 
-    def __init__(self, fmt_type) -> None:
+    def __init__(self, fmt_type=1) -> None:
         try:
             with open('formats.json', 'r') as f:
                 self.color_ranges = json.load(f)[str(fmt_type)]
         except:
             raise Exception('Ошибка файла formats.json')
-
-    def get_cell_format(self, total_hours):
-
-        base_format = {
+        
+        self.base_format = {
             'align': 'center',
             'valign': 'vcenter',
             'border': 1,
             'text_wrap': True
         }
 
-        colors = {
+        self.colors = {
             'white': '#FFFFFF',
             'yellow': '#FFFF00',
             'green': '#90ee90',
             'red': '#ff5050',
-            'bordo': '#b00000', #'font_color': 'white'}),
-            'dark_gray': '#565656' #'font_color': 'white'}),
+            'bordo': '#b00000',
+            'dark_gray': '#565656',
+            'header_gray': '#d9d9d9'
         }
-     
+
+    def get_staffing_cell_format(self, total_hours):
+
+        format = self.base_format.copy()
+
         for color, rng in self.color_ranges.items():
             if rng[0] <= total_hours < rng[1]:
                 color_match = color
         
         try:
-            format = base_format.copy()
-            format['bg_color'] = colors[color_match]
+            format['bg_color'] = self.colors[color_match]
             if color_match in ('bordo', 'dark_gray'):
                 format['font_color'] = 'white'
         except UnboundLocalError:
             raise Exception('В файле formats.json есть разрыв периода')
+
+        return format
+
+    def get_header_format(self, font_size=None):
+
+        format = self.base_format.copy()
+
+        if font_size is not None:
+            format['font_size'] = font_size
+
+        format['bg_color'] = self.colors['header_gray']
+        format['bold'] = True
+
+        return format
+    
+    def get_base_format(self, font_size=None, bold=False, font_color=None):
+
+        format = self.base_format.copy()
+
+        if font_size is not None:
+            format['font_size'] = font_size
+
+        if bold:
+            format['bold'] = True
+
+        if font_color is not None:
+            format['font_color'] = font_color
 
         return format
 
@@ -130,24 +161,22 @@ class StaffingDataLoader:
     #     self.df = self.df[self.df['Период'] > report_date_from]
 
     def get_total_df(self, date_from=None, date_to=None):
-        date_from += timedelta(days=2)
-        date_to += timedelta(days=2)
+        date_from -= timedelta(days=2)
+        date_to -= timedelta(days=2)
         df = self.df.copy()
         if date_from is not None:
             df = df[df['Период'] >= date_from]
         if date_to is not None:
             df = df[df['Период'] <= date_to]
         df = df.groupby('GPN').sum()
-        df = df.rename({'Hours': 'Staffing Total'}, axis=1)
+        df = df.rename({'Hours': 'Staffing (total)'}, axis=1)
         return df
-
-
 
 class StaffingReportGenerator:
 
     def __init__(self, selected_file_path, report_type) -> None:
         self.loader = StaffingDataLoader(selected_file_path)
-        self.cell_formatter = StaffingReportCellFormatter(report_type)
+        self.cell_formatter = CellFormatter(report_type)
         week_name = (self.loader.week_cols[0] + timedelta(days=2)).strftime('%d-%m-%Y')
         self.save_path = f'Staffing_ITRA_byPerson-w-{week_name}.xlsx'
         self.set_up_excel_workbook()
@@ -205,7 +234,7 @@ class StaffingReportGenerator:
         for staff_n, staff in enumerate(self.loader.staff_list):
             for week_n, week in enumerate(self.loader.week_cols):
                 cell = StaffingReportCellGenerator(staff[0], week, self.loader.df)
-                cell_format = self.workbook.add_format(self.cell_formatter.get_cell_format(cell.total))
+                cell_format = self.workbook.add_format(self.cell_formatter.get_staffing_cell_format(cell.total))
                 self.worksheet.write(staff_n + 1, week_n + 2, cell.text, cell_format)
 
 class StaffingReportGenerationThread(Thread):
@@ -263,40 +292,151 @@ class ChargingDataLoader:
         if date_to is not None:
             df = df[df['Timesheet Date'] <= date_to]
         df = df.groupby('GPN').sum()
-        df = df.rename({'Hrs': 'Charging Total'}, axis=1)
+        df = df.rename({'Hrs': 'Charged on client codes'}, axis=1)
         return df
 
 class StaffingVsChargingReportGenerator:
     
-    def __init__(self) -> None:
-        date_from=datetime.strptime('2022-08-01', '%Y-%m-%d').date()
-        date_to=datetime.strptime('2022-08-05', '%Y-%m-%d').date()
+    def __init__(self, date_f, date_t) -> None:
+        date_from=datetime.strptime(date_f, '%Y-%m-%d').date()
+        date_to=datetime.strptime(date_t, '%Y-%m-%d').date()
+
+        employee = EmployeeDataLoader('.\data\ITRA Counsellors.xlsx').df
 
         staffing = StaffingDataLoader('.\data\staffing.xlsx')
-        charging_cyber = ChargingDataLoader('.\data\Cyber_Staff Charging Details.xlsx')
-        # charging_tech = ChargingDataLoader('.\data\Cyber_Staff Charging Details.xlsx')
-        employee = EmployeeDataLoader('.\data\ITRA Counsellors.xlsx')
-        report = employee.data_df
-        report['_grade_order'] = report['Grade'].map(employee.grades_order)
-        report.sort_values(by=['_grade_order', 'Name'], inplace=True)
         staffing_total = staffing.get_total_df(date_from, date_to)
-        charging_cyber_total = charging_cyber.get_total_df(date_from, date_to)
+        
+        charging_cyber = ChargingDataLoader('.\data\Cyber_Staff Charging Details.xlsx')
+        charging_tech = ChargingDataLoader('.\data\TR_Staff Charging Details.xlsx')
+        charging_total = pd.concat([charging_cyber.get_total_df(date_from, date_to),
+                                    charging_tech.get_total_df(date_from, date_to)])
 
-        report = pd.merge(report, staffing_total, how='left', left_index=True, right_index=True, sort=False)
-        report = pd.merge(report, charging_cyber_total, how='left', left_index=True, right_index=True, sort=False)
-        report['Charging - Staffing'] = report['Charging Total'] - report['Staffing Total']
-        report.to_excel('res_tst.xlsx')
+        report = pd.merge(employee, staffing_total, how='left', left_index=True, right_index=True, sort=False)
+        report = pd.merge(report, charging_total, how='left', left_index=True, right_index=True, sort=False)
+        report.fillna(value={'Charged on client codes': 0, 'Staffing (total)': 0}, inplace=True)
+        report['Charging - Staffing'] = report['Charged on client codes'] - report['Staffing (total)']
+        report.sort_values(by=['grade_order', 'Name'], inplace=True)
+        report['Project manager'] = ''
 
+        # вывод сверки в файл
+        formatter = CellFormatter()
+        output_file_name = 'Staffing vs Charging_week {}-{}.xlsx'.format(date_from.strftime("%d.%m"),
+                                                                         date_to.strftime("%d.%m.%Y"))
 
+        workbook = xlsxwriter.Workbook(output_file_name)
+        worksheet = workbook.add_worksheet('Report')
+        worksheet.set_zoom(65)
+        worksheet.set_row(0, 66)
+        worksheet.set_row(1, 46)
+
+        for row in range(2, len(report.index) + 2):
+            worksheet.set_row(row, 104)
+
+        worksheet.set_column(0, 0, 32)
+        worksheet.set_column(1, 1, 10)
+        worksheet.set_column(2, 2, 32)
+        worksheet.set_column(3, 3, 72)
+        for col in range(4, 9):
+            worksheet.set_column(col, col, 30)
+
+        worksheet.freeze_panes(2, 0)
+
+        # заполнение заголовка
+        header_fmt = workbook.add_format(formatter.get_header_format(font_size=18))
+        base_fmt = workbook.add_format(formatter.get_base_format(font_size=18))
+        base_fmt_bold = workbook.add_format(formatter.get_base_format(font_size=18, bold=True))
+        base_fmt_bold_red = workbook.add_format(formatter.get_base_format(font_size=18, bold=True, font_color='red'))
+        first_row_text = 'Staffing vs Charging report\n{} - {}'.format(date_from.strftime("%d.%m"),
+                                                                       date_to.strftime("%d.%m.%Y"))
+        worksheet.merge_range('A1:I1', first_row_text, header_fmt)
+
+        row = 1
+        col = 0
+        for name in ['Specialist', 'Grade', 'Counselor', 'Staffing',
+                    'Staffing (total)', 'Project manager', 'Charged on client codes',
+                    'Charging - Staffing', 'Comment']:
+            worksheet.write(row, col, name, header_fmt)
+            col += 1
+
+        row = 2
+        for gpn in report.index:
+
+            col = 0
+
+            # вывод специалиста
+            worksheet.write(row, col, report.loc[gpn, 'Name'], base_fmt_bold)
+            col += 1
+
+            # вывод грейда
+            worksheet.write(row, col, report.loc[gpn, 'Short Grade'], base_fmt)
+            col += 1
+
+            # вывод канселора
+            worksheet.write(row, col, report.loc[gpn, 'Counselor'], base_fmt)
+            col += 1
+
+            # вывод стаффинга
+            staffing_cell = StaffingReportCellGenerator(gpn, date_from - timedelta(days=2), staffing.df)
+            staffing_cell_format = workbook.add_format(formatter.get_staffing_cell_format(staffing_cell.total))
+            worksheet.write(row, col, staffing_cell.text, staffing_cell_format)
+            col += 1
+
+            # вывод стаффинга (тотал)
+            worksheet.write(row, col, report.loc[gpn, 'Staffing (total)'], base_fmt)
+            col += 1
+
+            # вывод пустой колонки с манагерами
+            worksheet.write(row, col, report.loc[gpn, 'Project manager'], base_fmt)
+            col += 1
+
+            # вывод чарджинга
+            worksheet.write(row, col, report.loc[gpn, 'Charged on client codes'], base_fmt)
+            col += 1
+
+            # вывод разницы
+            diff = float(report.loc[gpn, 'Charging - Staffing'])
+            diff = round(diff, 2)
+
+            if (diff < 0):
+                fmt = base_fmt_bold_red
+                res = str(diff)
+
+            if (diff == 0):
+                fmt = base_fmt_bold
+                res = str(diff)
+
+            if (diff > 0):
+                fmt = base_fmt_bold
+                res = "+" + str(diff)
+
+            res = res.replace('.0', '')
+
+            worksheet.write(row, col, res, fmt)
+            col += 1
+
+            # вывод комментария
+            comment_text = 'Vacation' if 'Vacation' in staffing_cell.text else ''
+            worksheet.write(row, col, comment_text, base_fmt)
+            col += 1
+
+            # вывод одной строки закончен, переходим к следующей
+            row += 1
+
+        workbook.close()
 
 class EmployeeDataLoader:
 
     def __init__(self, path_to_file) -> None:
-        self.data_df = pd.read_excel(path_to_file,converters={'GPN': str}, sheet_name='Data')
-        self.data_df.set_index('GPN', inplace=True)
-        self.grades_df = pd.read_excel(path_to_file, sheet_name='Grades', index_col=None)
-        self.grades = {v[0]: v[1] for v in self.grades_df.values}
-        self.grades_order = {key: n for (n, key) in enumerate(self.grades.keys())}
+        grades_df = pd.read_excel(path_to_file, sheet_name='Grades', index_col=None)
+        grades = {v[0]: v[1] for v in grades_df.values}
+        grades_order = {key: n for (n, key) in enumerate(grades.keys())}
+        
+        data_df = pd.read_excel(path_to_file, converters={'GPN': str}, sheet_name='Data')
+        data_df.set_index('GPN', inplace=True)
+        data_df['grade_order'] = data_df['Grade'].map(grades_order)
+        data_df.sort_values(by=['grade_order', 'Name'], inplace=True)
+
+        self.df = data_df
 
 class View(tk.Tk):
 
@@ -379,7 +519,15 @@ class View(tk.Tk):
 
 
 if __name__ == '__main__':
-    # view = View()
-    # view.main()
+    view = View()
+    view.main()
 
-    generator = StaffingVsChargingReportGenerator()
+    # dates = [
+    #     # ['2022-08-29', '2022-09-02'],
+    #     # ['2022-09-05', '2022-09-09'],
+    #     ['2022-09-12', '2022-09-16']
+    # ]
+
+    # for d in dates:
+    #     print(d)
+    #     StaffingVsChargingReportGenerator(*d)
