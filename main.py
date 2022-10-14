@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from tkinter import messagebox as mb
 from tkinter import filedialog as fd
 from tkinter import ttk
+from tkcalendar import DateEntry
 from threading import Thread
 
 
@@ -443,42 +444,69 @@ class View(tk.Tk):
     def __init__(self, master=None) -> None:
         super().__init__()
 
-        # TODO: добавить проверку наличия файлов grades.json и formats.json
-
         self.title('ITRA reports')
-        self.minsize(400, 200)
+        self.minsize(400, 300)
 
         self.main_frame = ttk.Frame(self)
         self.main_frame.pack(side='top', fill='both', expand=True, padx=10, pady=10)
-        self.main_frame.rowconfigure(0, weight=2)
-        self.main_frame.rowconfigure(1, weight=1)
-        self.main_frame.rowconfigure(2, weight=1)
-        self.main_frame.rowconfigure(3, weight=1)
-        self.main_frame.rowconfigure(4, weight=4)
+
+        current_row = 0
+        staffing_label = ttk.Label(self.main_frame, text='Стаффинг')
+        staffing_label.grid(row=current_row, column=0, sticky='we')
+        self.staffing_file_path = tk.StringVar()
+        staffing_button = ttk.Button(self.main_frame, text='Выбрать файл', command=self.select_file)
+        staffing_button.grid(row=current_row, column=1, sticky='we')
+
+        current_row += 1
+        charging_cyber_label = ttk.Label(self.main_frame, text='Чарджинг Cyber')
+        charging_cyber_label.grid(row=current_row, column=0, sticky='w')
+        self.charging_cyber_file_path = tk.StringVar()
+        charging_cyber_button = ttk.Button(self.main_frame, text='Выбрать файл', command=self.select_file)
+        charging_cyber_button.grid(row=current_row, column=1, sticky='we')
+
+        current_row += 1
+        charging_tr_label = ttk.Label(self.main_frame, text='Чарджинг TR')
+        charging_tr_label.grid(row=current_row, column=0, sticky='w')
+        self.charging_tr_file_path = tk.StringVar()
+        charging_tr_button = ttk.Button(self.main_frame, text='Выбрать файл', command=self.select_file)
+        charging_tr_button.grid(row=current_row, column=1, sticky='we')
+
+        current_row += 1
+        date_from_label = ttk.Label(self.main_frame, text='Дата ОТ')
+        date_from_label.grid(row=current_row, column=0, sticky='w')
+        self.date_from_str = tk.StringVar()
+        date_from_date_entry = DateEntry(self.main_frame, select_mode='day', textvariable=self.date_from_str)
+        date_from_date_entry.grid(row=current_row, column=1, sticky='we')
+        
+        current_row += 1
+        date_to_label = ttk.Label(self.main_frame, text='Дата ДО')
+        date_to_label.grid(row=current_row, column=0, sticky='w')
+        self.date_to_str = tk.StringVar()
+        date_to_date_entry = DateEntry(self.main_frame, select_mode='day', textvariable=self.date_to_str)
+        date_to_date_entry.grid(row=current_row, column=1, sticky='we')
+
+        current_row += 1
+        report_label = ttk.Label(self.main_frame, text='Отчет')
+        report_label.grid(row=current_row, column=0, sticky='w')
+        combo_values = [
+            'Стаффинг формальный',
+            'Стаффинг внутренний мониторинг',
+            'Сверка стаффинг-чарджинг'
+        ]
+        report_combo = ttk.Combobox(self.main_frame, values=combo_values)
+        report_combo.current(0)
+        report_combo.grid(row=current_row, column=1, sticky='we')
+
+        current_row += 1
+        self.generate_report_button = ttk.Button(self.main_frame, text='Сформировать отчет', width=40, command=self.generate_report)
+        self.generate_report_button.grid(row=current_row, column=0, columnspan=2)
+        self.generate_report_button['state'] = 'disabled'
+
+
+        for row_n in range(current_row+1):
+            self.main_frame.rowconfigure(row_n, weight=1)
         self.main_frame.columnconfigure(0, weight=1)
         self.main_frame.columnconfigure(1, weight=4)
-
-        select_file_label = ttk.Label(self.main_frame, text='Выгрузка из 1C')
-        select_file_label.grid(row=0, column=0, sticky='w')
-        self.selected_file_path = tk.StringVar()
-        select_file_button = ttk.Button(self.main_frame, text='Выбрать файл', command=self.select_file)
-        select_file_button.grid(row=0, column=1, sticky='we')
-
-        report_type_label = ttk.Label(self.main_frame, text='Тип отчета:')
-        report_type_label.grid(row=1, column=0, sticky='w')
-
-        self.report_type = tk.IntVar()
-        self.report_type.set(1)
-        
-        rb0 = ttk.Radiobutton(self.main_frame, text='Формальный: белый, желтый, зеленый, красный', variable=self.report_type, value=1)
-        rb0.grid(row=2, column=0, columnspan=2, sticky='w')
-
-        rb1 = ttk.Radiobutton(self.main_frame, text='Внутренний мониторинг: вариант 1 + бордовый и темно-серый', variable=self.report_type, value=2)
-        rb1.grid(row=3, column=0, columnspan=2, sticky='w')
-
-        self.generate_report_button = ttk.Button(self.main_frame, text='Сформировать отчет', width=40, command=self.generate_report)
-        self.generate_report_button.grid(row=4, column=0, columnspan=2)
-        self.generate_report_button['state'] = 'disabled'
 
     def select_file(self):
         filetypes = (
@@ -487,20 +515,20 @@ class View(tk.Tk):
         )
 
         file_name = fd.askopenfilename(
-            title='Выберите файл выгрузки из 1C',
+            title='Выберите файл',
             initialdir='.',
             filetypes=filetypes)
 
         if file_name == '':
             pass
         else:
-            self.selected_file_path.set(file_name)
+            self.staffing_file_path.set(file_name)
             self.generate_report_button['state'] = 'normal'
 
     def generate_report(self):
         self.generate_report_button['state'] = 'disabled'
         self.main_frame.config(cursor='wait')
-        thread = StaffingReportGenerationThread(self.selected_file_path.get(), self.report_type.get())
+        thread = StaffingReportGenerationThread(self.staffing_file_path.get(), self.report_type.get())
         thread.start()
         self.monitor(thread)
 
@@ -523,9 +551,9 @@ if __name__ == '__main__':
     view.main()
 
     # dates = [
-    #     # ['2022-08-29', '2022-09-02'],
-    #     # ['2022-09-05', '2022-09-09'],
-    #     ['2022-09-12', '2022-09-16']
+    #     ['2022-09-19', '2022-09-23'],
+    #     ['2022-09-26', '2022-09-30'],
+    #     ['2022-10-03', '2022-10-07']
     # ]
 
     # for d in dates:
